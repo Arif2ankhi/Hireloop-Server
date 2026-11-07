@@ -27,15 +27,29 @@ export async function connectToMongoDB() {
   }
 }
 
-connectToMongoDB();
+const connectedClient = await connectToMongoDB();
+const database = connectedClient.db("hireloopdb");
+const users = database.collection("user");
+const jobs = database.collection("jobs")
 
 
 
 
+//Default server initial 
 app.get('/', (req, res) => {
   res.send('Hire loop is running');
 });
 
+
+app.get('/users', async (req, res) =>{
+    const cursor = users.find({});
+    const result = await cursor.toArray();
+    res.send(result);
+
+})
+
+
+//listener
 app.listen(port, () => {
   console.log(`Hire loop is running on port ${port}`);
 });
