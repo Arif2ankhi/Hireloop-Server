@@ -40,7 +40,7 @@ app.get('/', (req, res) => {
   res.send('Hire loop is running');
 });
 
-
+//User related Api 
 app.get('/users', async (req, res) =>{
     const cursor = users.find({});
     const result = await cursor.toArray();
@@ -48,6 +48,13 @@ app.get('/users', async (req, res) =>{
 
 })
 
+//Jobs related Api 
+app.post('/jobs', async(req, res)=>{
+   const job= req.body;
+    const result = await jobs.insertOne(job);
+    res.send(result)
+
+})
 
 //listener
 app.listen(port, () => {
