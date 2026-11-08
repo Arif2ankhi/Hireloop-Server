@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
+
 
 
 const app = express();
@@ -48,11 +49,31 @@ app.get('/users', async (req, res) =>{
 
 })
 
-//Jobs related Api 
+
+// Get Jobs data in table 
+app.get('/jobs', async (req, res) =>{
+    const cursor = jobs.find();
+    const result = await cursor.toArray();
+    res.send(result);
+
+})
+
+//Jobs related Api http://localhost:5000/jobs
 app.post('/jobs', async(req, res)=>{
    const job= req.body;
     const result = await jobs.insertOne(job);
     res.send(result)
+
+})
+
+//delete a  job api  http://localhost:5000/jobs
+
+app.delete('/jobs/:id', async (req, res) =>{
+    const id = req.params.id;
+    const query = {_id: new ObjectId(id)};
+    const result = await jobs.deleteOne(query);
+    res.send(result);
+
 
 })
 
