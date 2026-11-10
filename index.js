@@ -31,7 +31,8 @@ export async function connectToMongoDB() {
 const connectedClient = await connectToMongoDB();
 const database = connectedClient.db("hireloopdb");
 const users = database.collection("user");
-const jobs = database.collection("jobs")
+const jobs = database.collection("jobs");
+const applications = database.collection("applications");
 
 
 
@@ -49,7 +50,7 @@ app.get('/users', async (req, res) =>{
 
 })
 
-
+//Api for search , filter and query
 app.get('/jobs', async (req, res) => {
   const query = {};
   // console.log('query', req.query);
@@ -81,6 +82,15 @@ app.get('/jobs', async (req, res) => {
   res.send(result);
 });
 
+// Jobs details page API 
+
+app.get('/jobs/:id', async(req, res)=>{
+  const id = req.params.id;
+  const query = {_id: new ObjectId(id)};
+  const result = await jobs.findOne(query);
+  res.send(result)
+})
+
 //Jobs related Api http://localhost:5000/jobs
 app.post('/jobs', async(req, res)=>{
    const job= req.body;
@@ -97,7 +107,23 @@ app.delete('/jobs/:id', async (req, res) =>{
     const result = await jobs.deleteOne(query);
     res.send(result);
 
+``
+})
 
+
+//Application related Api
+app.get('/applications', async(req, res)=> {
+  const query = {};
+  const cursor = applications.find({});
+    const result = await cursor.toArray()
+    res.send(result)
+
+})
+
+app.post('/applications', async(req, res)=>{
+  const application = req.body;
+  const result = await applications.insertOne(application);
+  res.send(result)
 })
 
 //listener
