@@ -50,13 +50,36 @@ app.get('/users', async (req, res) =>{
 })
 
 
-// Get Jobs data in table 
-app.get('/jobs', async (req, res) =>{
-    const cursor = jobs.find();
-    const result = await cursor.toArray();
-    res.send(result);
+app.get('/jobs', async (req, res) => {
+  const query = {};
+  // console.log('query', req.query);
 
-})
+  if (req.query) {
+    if (req.query.type) {
+      query.type = req.query.type;
+    }
+
+    if (req.query.isRemote) {
+      query.isRemote = req.query.isRemote;
+    }
+
+    if (req.query.category) {
+      query.category = req.query.category;
+    }
+
+    if (req.query.search) {
+      query.$or = [
+        { title: { $regex: req.query.search, $options: 'i' } },
+        { requirements: { $regex: req.query.search, $options: 'i' } },
+        { responsibilities: { $regex: req.query.search, $options: 'i' } }
+      ];
+    }
+  }
+
+  const cursor = jobs.find(query);
+  const result = await cursor.toArray();
+  res.send(result);
+});
 
 //Jobs related Api http://localhost:5000/jobs
 app.post('/jobs', async(req, res)=>{
