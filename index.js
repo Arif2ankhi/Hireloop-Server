@@ -2,8 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
+import Stripe from 'stripe';
 
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -33,6 +35,7 @@ const database = connectedClient.db("hireloopdb");
 const users = database.collection("user");
 const jobs = database.collection("jobs");
 const applications = database.collection("applications");
+const payments = database.collection("payments");
 
 
 
@@ -48,6 +51,15 @@ app.get('/users', async (req, res) =>{
     const result = await cursor.toArray();
     res.send(result);
 
+})
+
+//Premium user related api 
+
+app.get('/users/:id/premium', async(req, res)=>{
+  const id = req.params.id;
+  const query = {_id: new ObjectId(id)};
+  const result = await users.findOne(query,{ projection: { premium: 1}} );
+  res.send(result)
 })
 
 //Api for search , filter and query
@@ -66,6 +78,10 @@ app.get('/jobs', async (req, res) => {
 
     if (req.query.category) {
       query.category = req.query.category;
+    }
+
+    if(req.query.recruiterId){
+      query.recruiterId = req.query.recruiterId;
     }
 
     if (req.query.search) {
@@ -114,17 +130,198 @@ app.delete('/jobs/:id', async (req, res) =>{
 //Application related Api
 app.get('/applications', async(req, res)=> {
   const query = {};
-  const cursor = applications.find({});
+  if(req.query.applicantId){
+    // query.userId = req.query.applicantId
+    query.applicantId = req.query.applicantId
+  }
+  if(req.query.jobId){
+    query.jobId = req.query.jobId;
+  }
+
+  const cursor = applications.find(query);
+  // const cursor = applications.find({});
     const result = await cursor.toArray()
     res.send(result)
-
 })
+
+//Applications count related Api 
+
+app.get('/applications/count', async(req, res)=> {
+  const query = {};
+  if(req.query.applicantId){
+    // query.userId = req.query.applicantId
+    query.applicantId = req.query.applicantId
+  }
+  
+  const result = await applications.countDocuments(query)
+    res.send({ count: result })
+})
+
+
+
 
 app.post('/applications', async(req, res)=>{
   const application = req.body;
   const result = await applications.insertOne(application);
   res.send(result)
 })
+
+//Application status relatd Api PATCH method
+
+app.patch('/applications/:id/status', async (req, res) => {
+  const allowed = ['Applied', 'Review', 'Interview', 'Shortlisted', 'Rejected', 'Offered'];
+  if (!allowed.includes(req.body?.status)) {
+    return res.status(400).send({ message: 'Invalid status' });
+  }
+  const query = { _id: new ObjectId(req.params.id) };
+  const updatedDoc = {
+    $set: {
+      status: req.body.status,
+      statusUpdatedAt: new Date().toISOString(),
+    }
+  }
+  const result = await applications.updateOne(query, updatedDoc)
+  res.send(result)
+})
+
+
+// app.patch('/applications/:id', async (req, res)=>{
+//   const id = req.params.id;
+//   const query = {_id: new ObjectId(id)};
+//   const updatedDoc = {
+//     $set: {
+//       status:req.body.status,
+//     }
+//   }
+//   const result = await applications.updateOne(query, updatedDoc)
+//   res.send(result)
+// })
+
+//Payments related Api 
+
+app.post('/payments/checkout-verify', async (req, res) => {
+  const { sessionId } = req.body;
+  if (!sessionId) {
+    res.send({ success: false, message: 'sessionId is required' });
+    return;
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    // Stripe status is 'complete' (not 'completed')
+    if (session.status !== 'complete' || session.payment_status !== 'paid') {
+
+      const sessionQuery = {sessionId};
+      const existingPayment = await payments.findOne(sessionQuery)
+      if(existingPayment){
+        return res.send({success: false, message: 'Payment already verified'})
+      }
+      res.send({ success: false, message: 'Payment verification failed' });
+      return;
+    }
+
+    const userId = session.metadata?.userId;
+    if (!userId) {
+      res.send({ success: false, message: 'Session has no userId metadata' });
+      return;
+    }
+
+    // Record the payment — idempotent, so a page refresh doesn't duplicate it
+    const existing = await payments.findOne({ sessionId });
+    if (!existing) {
+      await payments.insertOne({
+        sessionId,
+        status: session.status,
+        payment_status: session.payment_status,
+        customer_email: session.customer_email,
+        userId,
+        payment_date: new Date(),
+        payment_intent: session.payment_intent,
+      });
+    }
+
+    // Set premium — better-auth ids may be a string field or an ObjectId _id
+    let updateResult = await users.updateOne({ id: userId }, { $set: { premium: true } });
+    if (updateResult.matchedCount === 0) {
+      updateResult = await users.updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: { premium: true } }
+      );
+    }
+
+    // res.send({ success: true, updateResult });
+// Success page new layout backend code 
+    res.send({
+  success: true,
+  alreadyVerified: existing ? true : undefined,
+  transactionId:
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null,
+  amount: (session.amount_total ?? 0) / 100,
+  currency: session.currency,
+  customerEmail: session.customer_email,
+  paymentDate: new Date().toISOString(),
+})
+  } catch (err) {
+    console.dir(err);
+    res.send({ success: false, message: 'Verification error' });
+  }
+});
+
+// app.get('/payments/checkout-verify', async(req, res)=>{
+//   const {sessionId} = req.body
+
+//     const {
+//     status,
+//     payment_status,
+//     customer_email,
+//      metadata,
+//      payment_intent
+
+//   } = await stripe.checkout.sessions.retrieve(sessionId);
+
+//   if(status === 'completed' && payment_status === 'paid'){
+
+//     const sessionQuery = {sessionId};
+//       const existingPayment = await payments.findOne(sessionQuery)
+//       if(existingPayment){
+//         return res.send({success: false, message: 'Payment already verified'})
+//       }
+//     const  payment ={
+//   sessionId,
+//     status,
+//     payment_status,
+//     customer_email,
+//      userId:metadata.userId,
+//      payment_date: new Date(),
+//      payment_intent
+
+//   }
+//   const result = await payments.insertOne(payment);
+// //update the user table
+
+// const query = {_id: new ObjectId(metadata.userId)};
+
+//   const updatedDoc= {
+//     $set:{
+//       premium: true,
+//     }
+//   }
+
+//   const updatedResult = await users.updateOne(
+//     query,
+//     updatedDoc
+//   )
+//   res.send({ success: true, result, updatedResult});
+//   return
+
+//   }
+
+//   res.send({success:false, message: 'Payment verification failed'})
+
+// })
 
 //listener
 app.listen(port, () => {
